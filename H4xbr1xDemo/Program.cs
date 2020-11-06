@@ -43,32 +43,29 @@ namespace H4xbr1xDemo
                 return;
             }
 
-            var codeOffset = (uint)ProcessQuery.VirtualAllocEx(
+            var stringOffset = (uint)ProcessQuery.VirtualAllocEx(
                 dummy.hProcess,
                 (IntPtr)0,
-                1024,
+                (uint)dll.Length + 1,
                 ProcessQuery.AllocationType.Commit | ProcessQuery.AllocationType.Reserve,
-                ProcessQuery.MemoryProtection.ExecuteReadWrite);
-            var stringOffset = codeOffset + 16;
-            var shellcode = new byte[]
-            {
-                0xB8, 0x48, 0x48, 0x48, 0x48, // mov eax, 0x48484848
-                0x50, // push eax
-                0xE8, 0x39, 0x39, 0x39, 0x39, // call 0x39393939
-                0xC3 // ret
-            };
+                ProcessQuery.MemoryProtection.ReadWrite);
 
-            BitConverter.TryWriteBytes(new Span<byte>(shellcode, 1, 4), stringOffset);
-            BitConverter.TryWriteBytes(new Span<byte>(shellcode, 7, 4), (uint)(peFile.exports["LoadLibraryA"] - 11 - codeOffset));
-            Console.WriteLine("Shellcode string address: {0:x}", BitConverter.ToUInt32(shellcode, 1));
-            Console.WriteLine("Shellcode LoadLibrary address: {0:x}", BitConverter.ToUInt32(shellcode, 7));
             ProcessQuery.WriteProcessMemory(dummy.hProcess, (IntPtr)stringOffset, dll, dll.Length+1, out _);
-            ProcessQuery.WriteProcessMemory(dummy.hProcess, (IntPtr)codeOffset, shellcode, shellcode.Length, out _);
-            ProcessQuery.CreateRemoteThread(dummy.hProcess, (IntPtr)0, 0, (IntPtr)codeOffset, (IntPtr)0, 0, out _);
+            var hThread = ProcessQuery.CreateRemoteThread(dummy.hProcess, (IntPtr)0, 0, (IntPtr)peFile.exports["LoadLibraryA"], (IntPtr)stringOffset, 0, out _);
+
+            ProcessQuery.WaitForSingleObject(hThread, 0xFFFFFFFF);
+
+            IntPtr dllHandle;
+            ProcessQuery.GetExitCodeThread(hThread, out dllHandle);
+
+            Console.WriteLine("Freeing memory at {0:x}", stringOffset);
+            ProcessQuery.VirtualFreeEx(dummy.hProcess, (IntPtr)stringOffset, 0, ProcessQuery.AllocationType.Release);
 
             Console.ReadLine();
-            Console.WriteLine("Freeing memory at {0:x}", codeOffset);
-            ProcessQuery.VirtualFreeEx(dummy.hProcess, (IntPtr)codeOffset, 0, ProcessQuery.AllocationType.Release);
+
+            Console.WriteLine("Unloading DLL");
+
+            ProcessQuery.CreateRemoteThread(dummy.hProcess, (IntPtr)0, 0, (IntPtr)peFile.exports["FreeLibrary"], dllHandle, 0, out _);
         }
     }
 }

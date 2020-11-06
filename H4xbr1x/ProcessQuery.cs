@@ -210,6 +210,12 @@ namespace H4xbr1x
             IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress,
             IntPtr lpParameter, uint dwCreationFlags, out IntPtr lpThreadId);
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool GetExitCodeThread(IntPtr hThread, out IntPtr lpExitCode);
+
         static public T ReadRemote<T>(Process process, IntPtr lpBaseAddress)
         {
             var buffer = new T[1];
