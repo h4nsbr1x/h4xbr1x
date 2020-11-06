@@ -163,15 +163,15 @@ namespace H4xbr1x
             var length = Array.FindIndex(input, offset, (x) => x == 0) - offset;
             return Encoding.GetEncoding(0).GetString(input, offset, length);
         }
-        public static string ReadCString(Process process, uint baseAddress)
+        public static string ReadCString(Process process, IntPtr baseAddress)
         {
             IEnumerable<Byte> bytes = new List<Byte>();
-            uint offset = 0;
+            int offset = 0;
             int length = -1;
             do
             {
                 var tempBytes = new byte[256];
-                ProcessQuery.ReadProcessMemory(process.hProcess, (IntPtr)(baseAddress + offset), tempBytes, (IntPtr)256, out _);
+                ProcessQuery.ReadProcessMemory(process.hProcess, (IntPtr)baseAddress + offset, tempBytes, (IntPtr)256, out _);
                 bytes = bytes.Concat(tempBytes);
                 offset += 256;
                 length = Array.FindIndex(bytes.ToArray(), 0, (x) => x == 0);
@@ -189,18 +189,18 @@ namespace H4xbr1x
             Marshal.FreeHGlobal(ptr);
             return output;
         }
-        public static T Deserialize<T>(Process process, uint baseAddress)
+        public static T Deserialize<T>(Process process, IntPtr baseAddress)
             where T : struct
         {
             var output = (object) new T();
-            ProcessQuery.ReadProcessMemory(process.hProcess, (IntPtr)baseAddress, output, (IntPtr)Marshal.SizeOf(typeof(T)), out _);
+            ProcessQuery.ReadProcessMemory(process.hProcess, baseAddress, output, (IntPtr)Marshal.SizeOf(typeof(T)), out _);
             return (T) output;
         }
         public static IMAGE_DOS_HEADER GetDosHeader(byte[] dll)
         {
             return PeParser.Deserialize<IMAGE_DOS_HEADER>(dll, 0);
         }
-        public static IMAGE_DOS_HEADER GetDosHeader(Process process, uint baseAddress)
+        public static IMAGE_DOS_HEADER GetDosHeader(Process process, IntPtr baseAddress)
         {
             return Deserialize<IMAGE_DOS_HEADER>(process, baseAddress);
         }
@@ -210,9 +210,9 @@ namespace H4xbr1x
             return PeParser.Deserialize<PeParser.IMAGE_FILE_HEADER>(dll, dosHeader.e_lfanew);
         }
 
-        public static IMAGE_FILE_HEADER GetPeHeader(Process process, uint baseAddress, IMAGE_DOS_HEADER dosHeader)
+        public static IMAGE_FILE_HEADER GetPeHeader(Process process, IntPtr baseAddress, IMAGE_DOS_HEADER dosHeader)
         {
-            return PeParser.Deserialize<PeParser.IMAGE_FILE_HEADER>(process, baseAddress + (uint)dosHeader.e_lfanew);
+            return PeParser.Deserialize<PeParser.IMAGE_FILE_HEADER>(process, baseAddress + dosHeader.e_lfanew);
         }
 
         public static IMAGE_OPTIONAL_HEADER32 GetOptionalHeader32(byte[] dll, IMAGE_DOS_HEADER dosHeader)
@@ -221,10 +221,28 @@ namespace H4xbr1x
             return PeParser.Deserialize<PeParser.IMAGE_OPTIONAL_HEADER32>(dll, optionalHeaderOffset);
         }
 
-        public static IMAGE_OPTIONAL_HEADER32 GetOptionalHeader32(Process process, uint baseAddress, IMAGE_DOS_HEADER dosHeader)
+        public static IMAGE_OPTIONAL_HEADER32 GetOptionalHeader32(Process process, IntPtr baseAddress, IMAGE_DOS_HEADER dosHeader)
         {
             var optionalHeaderOffset = dosHeader.e_lfanew + Marshal.SizeOf(typeof(PeParser.IMAGE_FILE_HEADER));
-            return PeParser.Deserialize<PeParser.IMAGE_OPTIONAL_HEADER32>(process, baseAddress + (uint)optionalHeaderOffset);
+            return PeParser.Deserialize<PeParser.IMAGE_OPTIONAL_HEADER32>(process, baseAddress + optionalHeaderOffset);
+        }
+
+        public static IMAGE_OPTIONAL_HEADER64 GetOptionalHeader64(Process process, IntPtr baseAddress, IMAGE_DOS_HEADER dosHeader)
+        {
+            var optionalHeaderOffset = dosHeader.e_lfanew + Marshal.SizeOf(typeof(PeParser.IMAGE_FILE_HEADER));
+            return PeParser.Deserialize<PeParser.IMAGE_OPTIONAL_HEADER64>(process, baseAddress + optionalHeaderOffset);
+        }
+
+        public static uint GetExportDirectoryRefOffset32(in IMAGE_DOS_HEADER dosHeader)
+        {
+            return (uint)dosHeader.e_lfanew +
+                (uint)Marshal.SizeOf(typeof(IMAGE_FILE_HEADER)) +
+                (uint)Marshal.SizeOf(typeof(IMAGE_OPTIONAL_HEADER32));
+        }
+
+        public static uint GetExportDirectoryRefOffset32(byte[] dll)
+        {
+            return GetExportDirectoryRefOffset32(GetDosHeader(dll));
         }
 
         public static IMAGE_EXPORT_DIRECTORY GetExportDirectory32(byte[] dll, IMAGE_DOS_HEADER dosHeader)
@@ -234,16 +252,35 @@ namespace H4xbr1x
             return PeParser.Deserialize<PeParser.IMAGE_EXPORT_DIRECTORY>(dll, (int)exportDirectoryRef.VirtualAddress);
         }
 
-        public static IMAGE_EXPORT_DIRECTORY GetExportDirectory32(Process process, uint baseAddress, IMAGE_DOS_HEADER dosHeader)
+        public static IMAGE_EXPORT_DIRECTORY GetExportDirectory32(Process process, IntPtr baseAddress, IMAGE_DOS_HEADER dosHeader)
         {
             var exportDirectoryRefOffset = PeParser.GetExportDirectoryRefOffset32(dosHeader);
-            var exportDirectoryRef = PeParser.Deserialize<PeParser.IMAGE_DATA_DIRECTORY>(process, baseAddress + (uint)exportDirectoryRefOffset);
-            return PeParser.Deserialize<PeParser.IMAGE_EXPORT_DIRECTORY>(process, baseAddress + (uint)exportDirectoryRef.VirtualAddress);
+            var exportDirectoryRef = PeParser.Deserialize<PeParser.IMAGE_DATA_DIRECTORY>(process, baseAddress + (int)exportDirectoryRefOffset);
+            return PeParser.Deserialize<PeParser.IMAGE_EXPORT_DIRECTORY>(process, baseAddress + (int)exportDirectoryRef.VirtualAddress);
         }
 
-        public static Dictionary<string, uint> BuildExports(byte[] dll, IMAGE_EXPORT_DIRECTORY exportDirectory)
+        public static uint GetExportDirectoryRefOffset64(in IMAGE_DOS_HEADER dosHeader)
         {
-            var exports = new Dictionary<string, uint>();
+            return (uint)dosHeader.e_lfanew +
+                (uint)Marshal.SizeOf(typeof(IMAGE_FILE_HEADER)) +
+                (uint)Marshal.SizeOf(typeof(IMAGE_OPTIONAL_HEADER64));
+        }
+
+        public static uint GetExportDirectoryRefOffset64(byte[] dll)
+        {
+            return GetExportDirectoryRefOffset64(GetDosHeader(dll));
+        }
+
+        public static IMAGE_EXPORT_DIRECTORY GetExportDirectory64(Process process, IntPtr baseAddress, IMAGE_DOS_HEADER dosHeader)
+        {
+            var exportDirectoryRefOffset = PeParser.GetExportDirectoryRefOffset64(dosHeader);
+            var exportDirectoryRef = PeParser.Deserialize<PeParser.IMAGE_DATA_DIRECTORY>(process, baseAddress + (int)exportDirectoryRefOffset);
+            return PeParser.Deserialize<PeParser.IMAGE_EXPORT_DIRECTORY>(process, baseAddress + (int)exportDirectoryRef.VirtualAddress);
+        }
+
+        public static Dictionary<string, IntPtr> BuildExports(byte[] dll, IMAGE_EXPORT_DIRECTORY exportDirectory)
+        {
+            var exports = new Dictionary<string, IntPtr>();
 
             for (var i = 0; i < exportDirectory.NumberOfNames; i++)
             {
@@ -252,24 +289,24 @@ namespace H4xbr1x
                 var functionOrdinal = BitConverter.ToUInt16(dll, (int)exportDirectory.AddressOfNameOrdinals + (2 * i));
                 var offset = (int)(functionOrdinal);
                 var functionAddress = BitConverter.ToUInt32(dll, (int)exportDirectory.AddressOfFunctions + (4 * offset));
-                exports[functionName] = functionAddress;
+                exports[functionName] = (IntPtr)functionAddress;
             }
 
             return exports;
         }
 
-        public static Dictionary<string, uint> BuildExports(Process process, uint baseAddress, IMAGE_EXPORT_DIRECTORY exportDirectory)
+        public static Dictionary<string, IntPtr> BuildExports(Process process, IntPtr baseAddress, IMAGE_EXPORT_DIRECTORY exportDirectory)
         {
-            var exports = new Dictionary<string, uint>();
+            var exports = new Dictionary<string, IntPtr>();
 
             for (var i = 0; i < exportDirectory.NumberOfNames; i++)
             {
-                var functionNameAddress = ProcessQuery.ReadRemote<uint>(process, (IntPtr)(baseAddress + exportDirectory.AddressOfNames + (4 * i)));
-                var functionName = PeParser.ReadCString(process, (uint)(baseAddress + functionNameAddress));
-                var functionOrdinal = ProcessQuery.ReadRemote<ushort>(process, (IntPtr)(baseAddress + exportDirectory.AddressOfNameOrdinals + (2 * i)));
+                var functionNameAddress = ProcessQuery.ReadRemote<int>(process, baseAddress + (int)exportDirectory.AddressOfNames + (4 * i));
+                var functionName = PeParser.ReadCString(process, baseAddress + functionNameAddress);
+                var functionOrdinal = ProcessQuery.ReadRemote<ushort>(process, baseAddress + (int)exportDirectory.AddressOfNameOrdinals + (2 * i));
                 var offset = (int)(functionOrdinal);
-                var functionAddress = ProcessQuery.ReadRemote<uint>(process, (IntPtr)(baseAddress + exportDirectory.AddressOfFunctions + (4 * offset)));
-                exports[functionName] = baseAddress+functionAddress;
+                var functionAddress = ProcessQuery.ReadRemote<int>(process, baseAddress + (int)exportDirectory.AddressOfFunctions + (4 * offset));
+                exports[functionName] = baseAddress + functionAddress;
             }
 
             return exports;
@@ -286,27 +323,40 @@ namespace H4xbr1x
             return new PeFile32(dosHeader, peHeader, optionalHeader, exportDirectory, exports);
         }
 
-        public static PeFile32 ParseFromProcess(Process process, uint baseAddress)
+        public static IPeFile ParseFromProcess(Process process, IntPtr baseAddress)
         {
             var dosHeader = GetDosHeader(process, baseAddress);
+            Console.WriteLine("Dos magic: {0:x}", dosHeader.e_magic);
             var peHeader = GetPeHeader(process, baseAddress, dosHeader);
+            Console.WriteLine("PE signature: {0:x}", peHeader.Signature);
             var optionalHeader = GetOptionalHeader32(process, baseAddress, dosHeader);
-            var exportDirectory = GetExportDirectory32(process, baseAddress, dosHeader);
-            var exports = BuildExports(process, baseAddress, exportDirectory);
+            Console.WriteLine("Optional header magic: {0:x}", optionalHeader.Magic);
+            switch (optionalHeader.Magic)
+            {
+                case 0x10B:
+                    {
+                        // 32 bit
+                        var exportDirectory = GetExportDirectory32(process, baseAddress, dosHeader);
+                        var exports = BuildExports(process, baseAddress, exportDirectory);
 
-            return new PeFile32(dosHeader, peHeader, optionalHeader, exportDirectory, exports);
-        }
+                        return new PeFile32(dosHeader, peHeader, optionalHeader, exportDirectory, exports);
+                    }
+                case 0x20B:
+                    {
+                        // 64 bit
+                        var optionalHeader64 = GetOptionalHeader64(process, baseAddress, dosHeader);
+                        Console.WriteLine("Reloaded optional header 64, magic: {0:x}", optionalHeader64.Magic);
+                        var exportDirectory = GetExportDirectory64(process, baseAddress, dosHeader);
+                        var exports = BuildExports(process, baseAddress, exportDirectory);
 
-        public static uint GetExportDirectoryRefOffset32(in IMAGE_DOS_HEADER dosHeader)
-        {
-            return (uint)dosHeader.e_lfanew +
-                (uint)Marshal.SizeOf(typeof(IMAGE_FILE_HEADER)) +
-                (uint)Marshal.SizeOf(typeof(IMAGE_OPTIONAL_HEADER32));
-        }
+                        return new PeFile64(dosHeader, peHeader, optionalHeader64, exportDirectory, exports);
+                    }
+                default:
+                    Console.WriteLine("Magic: {0:x}", optionalHeader.Magic);
+                    break;
+            }
 
-        public static uint GetExportDirectoryRefOffset32(byte[] dll)
-        {
-            return GetExportDirectoryRefOffset32(GetDosHeader(dll));
+            return default;
         }
     }
 }

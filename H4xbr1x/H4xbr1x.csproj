@@ -44,7 +44,10 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="ModuleEntry.cs" />
+    <Compile Include="PeFile.cs" />
     <Compile Include="PeFile32.cs" />
+    <Compile Include="PeFile64.cs" />
     <Compile Include="PeParser.cs" />
     <Compile Include="Process.cs" />
     <Compile Include="ProcessQuery.cs" />
